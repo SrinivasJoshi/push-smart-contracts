@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pragma solidity >=0.6.0 <0.7.0;
 pragma experimental ABIEncoderV2;
 
@@ -16,6 +17,7 @@ import "../interfaces/IPUSH.sol";
 import "../interfaces/IUniswapV2Router.sol";
 import "../interfaces/IEPNSCommV1.sol";
 import "../interfaces/ITokenBridge.sol";
+import "./Transfer.sol";
 
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
@@ -167,6 +169,13 @@ contract PushCoreV2 is
         );
     }
 
+    function onlyAllowedTokens(address _tokenAddress) private{
+        require(
+            allowedTokens[_tokenAddress],
+            "PushCoreV2::updateChannelMeta: Fee payment token not allowed"
+        );
+    }
+
     function addSubGraph(bytes calldata _subGraphData) external {
         onlyActivatedChannels(msg.sender);
         emit AddSubGraph(msg.sender, _subGraphData);
@@ -198,6 +207,12 @@ contract PushCoreV2 is
             "PushCoreV2::setMinPoolContribution: Invalid Amount"
         );
         MIN_POOL_CONTRIBUTION = _newAmount;
+    }
+
+    function addNewFeeToken(address _tokenAddress) external{
+        onlyGovernance();
+        require(address != address(0),"PushCoreV2::addNewFeeToken: Invalid Address");
+        allowedTokens[_tokenAddress] = true;
     }
 
     function pauseContract() external {
@@ -268,25 +283,43 @@ contract PushCoreV2 is
     function updateChannelMeta(
         address _channel,
         bytes calldata _newIdentity,
-        uint256 _amount
+        uint256 _amount,
+        address _feePaymentToken
     ) external whenNotPaused {
         onlyChannelOwner(_channel);
+        onlyAllowedTokens(_feePaymentToken);
+
         uint256 updateCounter = channelUpdateCounter[_channel].add(1);
         uint256 requiredFees = ADD_CHANNEL_MIN_FEES.mul(updateCounter);
 
-        require(
-            _amount >= requiredFees,
-            "PushCoreV2::updateChannelMeta: Insufficient Deposit Amount"
-        );
+         if (_feePaymentToken == PUSH_TOKEN_ADDRESS) {
+            require(
+                _amount >= requiredFees,
+                "PushCoreV2::updateChannelMeta: Insufficient Deposit Amount"
+            );
+        } else {
+             // Convert required fees to the equivalent amount in the selected token
+            // TODO: Implement Oracle
+            uint256 pushToSelectedTokenRate = getExchangeRate(PUSH_TOKEN_ADDRESS, _feePaymentToken);
+            requiredFees = requiredFees * pushToSelectedTokenRate;
+
+            // Make sure the user sends enough of the selected token to cover the fee
+            require(
+                _amount >= requiredFees,
+                "PushCoreV2::updateChannelMeta: Insufficient Deposit Amount"
+            );
+        }
+
         PROTOCOL_POOL_FEES = PROTOCOL_POOL_FEES.add(_amount);
         channelUpdateCounter[_channel] = updateCounter;
         channels[_channel].channelUpdateBlock = block.number;
 
-        IERC20(PUSH_TOKEN_ADDRESS).safeTransferFrom(
+        IERC20(_feePaymentToken).safeTransferFrom(
             _channel,
             address(this),
             _amount
         );
+        
         emit UpdateChannel(_channel, _newIdentity, _amount);
     }
 

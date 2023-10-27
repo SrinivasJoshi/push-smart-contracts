@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pragma solidity >=0.6.0 <0.7.0;
 
 contract PushCoreStorageV2{
@@ -42,4 +43,17 @@ contract PushCoreStorageV2{
 
     /** Handling bridged information **/
     mapping(address => uint256) public celebUserFunds;
+
+    // New state
+
+    // @notice Holds the details for a transfer
+    struct TransferData {
+        address from;
+        address to;
+        uint256 amount;
+    }
+
+    // @notice Holds details about tokens allowed to be used for fee payment
+    mapping(address => bool) public allowedTokens;
+    // mapping(address => uint256) public protocolFees;
 }
